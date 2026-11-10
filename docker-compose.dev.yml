@@ -1,5 +1,42 @@
 services:
+  # Minimal OpenID Connect provider for local development. The portal and the
+  # browser both reach it as `mock-idp.localhost`: Docker resolves the alias to
+  # this service, while the browser resolves the `*.localhost` name to 127.0.0.1
+  # and uses the published port. Override OAUTH_OIDC_* below to use a real IdP.
+  mock-idp:
+    image: wg-easy-dev:local
+    build:
+      dockerfile: ./Dockerfile.dev
+    entrypoint: ["node"]
+    command: ["test/e2e/mock-oidc/server.mjs"]
+    environment:
+      MOCK_OIDC_ISSUER: http://mock-idp.localhost:9000
+      MOCK_OIDC_CLIENT_ID: ${OAUTH_OIDC_CLIENT_ID:-wg-easy}
+      MOCK_OIDC_CLIENT_SECRET: ${OAUTH_OIDC_CLIENT_SECRET:-dev-secret}
+      MOCK_OIDC_GROUPS: ${MOCK_OIDC_GROUPS:-vpn-users}
+      MOCK_OIDC_NAME: ${MOCK_OIDC_NAME:-Dev User}
+      MOCK_OIDC_EMAIL: ${MOCK_OIDC_EMAIL:-dev@example.test}
+      MOCK_OIDC_USERNAME: ${MOCK_OIDC_USERNAME:-dev}
+    ports:
+      - "127.0.0.1:9000:9000"
+    networks:
+      default:
+        aliases:
+          - mock-idp.localhost
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:9000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 2s
+
   wg-easy:
+    image: wg-easy-dev:local
     build:
       dockerfile: ./Dockerfile.dev
     command: dev
@@ -14,12 +51,19 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    depends_on:
+      mock-idp:
+        condition: service_healthy
     environment:
-      - INIT_ENABLED=true
-      - INIT_HOST=test
-      - INIT_PORT=51820
-      - INIT_USERNAME=testtest
-      - INIT_PASSWORD=Qweasdyxcv!2
+      INSECURE: "true"
+      OAUTH_OIDC_SERVER: ${OAUTH_OIDC_SERVER:-http://mock-idp.localhost:9000}
+      OAUTH_OIDC_NAME: ${OAUTH_OIDC_NAME:-Mock OIDC}
+      OAUTH_OIDC_CLIENT_ID: ${OAUTH_OIDC_CLIENT_ID:-wg-easy}
+      OAUTH_OIDC_CLIENT_SECRET: ${OAUTH_OIDC_CLIENT_SECRET:-dev-secret}
+      OIDC_ALLOWED_GROUPS: ${OIDC_ALLOWED_GROUPS:-vpn-users}
+      VPN_HOST: ${VPN_HOST:-localhost}
+      VPN_PORT: ${VPN_PORT:-51820}
+      PORTAL_WIPE_LEGACY: "1"
 
     develop:
       watch:

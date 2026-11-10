@@ -1,29 +1,7 @@
 import { createError } from 'nuxt/server';
 
-import {
-  hashPassword,
-  isPasswordValid,
-  isValidPasswordHash,
-} from '#server/utils/password';
+import { isPasswordValid } from '#server/utils/password';
 import { getDatabase } from '#db';
-import type { GeneralUpdateType } from '#shared/contracts/general';
-import type { Actor } from '#shared/contracts/identity';
-import { authorize } from '#server/features/authorization';
-
-export function get(actor: Actor) {
-  authorize(actor, 'admin', 'any');
-  return getDatabase().general.getConfig();
-}
-
-export async function update(actor: Actor, data: GeneralUpdateType) {
-  authorize(actor, 'admin', 'any');
-  const password = data.metricsPassword;
-  const metricsPassword =
-    password !== null && !isValidPasswordHash(password)
-      ? await hashPassword(password)
-      : password;
-  await getDatabase().general.update({ ...data, metricsPassword });
-}
 
 export async function authorizeMetrics(
   type: 'prometheus' | 'json',

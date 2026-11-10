@@ -11,5 +11,10 @@ export default defineConfig({
     locale: 'en-US',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      // The browser drives the mock IdP by name; Docker resolves the same name
+      // to the mock service, while the host reaches it on the published port.
+      args: ['--host-resolver-rules=MAP mock-oidc 127.0.0.1'],
+    },
   },
 });

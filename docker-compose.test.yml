@@ -1,16 +1,42 @@
 services:
+  mock-oidc:
+    image: wg-easy-e2e:local
+    entrypoint: ["node"]
+    command: ["/mock-oidc/server.mjs"]
+    environment:
+      MOCK_OIDC_GROUPS: ${E2E_OIDC_GROUPS:-vpn-users}
+    volumes:
+      - ./src/test/e2e/mock-oidc:/mock-oidc:ro
+    ports:
+      # The browser resolves the mock-oidc hostname to this published port.
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:9000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 2s
+
   wg-easy:
     image: wg-easy-e2e:local
     environment:
       INSECURE: "true"
       DISABLE_IPV6: "true"
-      DISABLE_VERSION_CHECK: "true"
       DEBUG: ""
-      INIT_ENABLED: ${E2E_INITIALIZED:-true}
-      INIT_USERNAME: e2e-admin
-      INIT_PASSWORD: e2e-only-password-123!
-      INIT_HOST: vpn.example.test
-      INIT_PORT: "51820"
+      PORTAL_WIPE_LEGACY: "1"
+      OAUTH_OIDC_SERVER: http://mock-oidc:9000
+      OAUTH_OIDC_NAME: Mock OIDC
+      OAUTH_OIDC_CLIENT_ID: wg-easy
+      OAUTH_OIDC_CLIENT_SECRET: e2e-secret
+      OIDC_ALLOWED_GROUPS: vpn-users
+      VPN_HOST: vpn.example.test
+      VPN_PORT: "51820"
+    depends_on:
+      mock-oidc:
+        condition: service_healthy
     cap_add:
       - NET_ADMIN
     sysctls:
@@ -29,7 +55,7 @@ services:
         - CMD-SHELL
         - >-
           wg show wg0 public-key >/dev/null &&
-          node -e "fetch('http://127.0.0.1:51821/api/information').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+          node -e "fetch('http://127.0.0.1:51821/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 2s
       timeout: 5s
       retries: 30

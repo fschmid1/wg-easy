@@ -21,15 +21,16 @@ type App = {
   pingFromClient: (address: string) => Promise<boolean>;
 };
 
-export const credentials = {
-  username: 'e2e-admin',
-  password: 'e2e-only-password-123!',
-};
+/**
+ * `groups` configures the mock identity provider. The portal allow-list is
+ * always `vpn-users`, so any other value exercises the access-denied path.
+ */
+type Options = { groups: string };
 
-export const test = base.extend<{ app: App; initialized: boolean }>({
-  initialized: [true, { option: true }],
+export const test = base.extend<Options & { app: App }>({
+  groups: ['vpn-users', { option: true }],
   app: [
-    async ({ initialized }, use, testInfo) => {
+    async ({ groups }, use, testInfo) => {
       const runDir = process.env.E2E_RUN_DIR;
       if (!runDir) {
         throw new Error('Run pnpm test:e2e to manage test containers.');
@@ -54,7 +55,7 @@ export const test = base.extend<{ app: App; initialized: boolean }>({
           {
             env: {
               ...process.env,
-              E2E_INITIALIZED: String(initialized),
+              E2E_OIDC_GROUPS: groups,
             },
             timeout: 120_000,
             maxBuffer: 4 * 1024 * 1024,

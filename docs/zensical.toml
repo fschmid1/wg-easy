@@ -1,6 +1,6 @@
 [project]
 site_name = "wg-easy"
-site_description = "The easiest way to run WireGuard VPN + Web-based Admin UI."
+site_description = "OIDC access portal for short-lived WireGuard configurations."
 site_author = "WireGuard Easy"
 copyright = """
 <p>

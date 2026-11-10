@@ -14,17 +14,24 @@ If you only allow access to the web UI from your local network, you can skip the
 
 ## Setup
 
-- Edit the `docker-compose.yml` file and uncomment `environment` and `INSECURE`
+- Keep the OIDC variables from the [configuration reference](../../advanced/config/external-authentication.md)
+  and set `INSECURE` to `true` to allow the session cookie over HTTP.
 
-- Set `INSECURE` to `true` to allow access to the web UI over a non-secure connection.
-
-- The `docker-compose.yml` file should look something like this:
+- The environment should look something like this:
 
     ```yaml
     environment:
+        - OAUTH_OIDC_SERVER=https://idp.example.com
+        - OAUTH_OIDC_CLIENT_ID=wg-easy
+        - OAUTH_OIDC_CLIENT_SECRET=...
+        - OIDC_ALLOWED_GROUPS=vpn-users
+        - VPN_HOST=vpn.example.com
         - INSECURE=true
     ```
 
+- The OIDC redirect URI must match the address you use, for example
+  `http://192.168.1.10:51821/api/auth/callback`.
+
 - Save the file and restart `wg-easy`.
 
-- Make sure that the Web UI is not accessible from outside your local network.
+- Make sure that the portal is not accessible from outside your local network.

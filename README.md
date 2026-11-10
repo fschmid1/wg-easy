@@ -7,117 +7,123 @@
 [![GitHub Release](https://img.shields.io/github/v/release/wg-easy/wg-easy)](https://github.com/wg-easy/wg-easy/releases/latest)
 [![Image Pulls](https://img.shields.io/badge/image_pulls-28M+-blue)](https://github.com/wg-easy/wg-easy/pkgs/container/wg-easy)
 
-You have found the easiest way to install & manage WireGuard on any Linux host!
+This build is an **OIDC-only access portal** for WireGuard. A user signs in with an
+identity provider, requests one short-lived configuration, downloads it once, and
+connects. The tunnel and the web session end on logout or timeout.
 
-<p align="center">
-  <img src="./assets/screenshot.png" width="802" alt="wg-easy Screenshot" />
-</p>
+There is no admin UI, no password login, no user management, and no long-lived peer.
+Everything is configured through environment variables.
 
 ## Features
 
-- All-in-one: WireGuard + Web UI.
-- Easy installation, simple to use.
-- List, create, edit, delete, enable & disable clients.
-- Search, filter, sort, and paginate clients.
-- Enable, disable, or delete multiple selected clients.
-- Show a client's QR code.
-- Download or copy a client's configuration, and export QR codes as PNG.
-- Rotate client key pairs and add, rotate, or remove preshared keys.
-- Statistics for which clients are connected.
-- Tx/Rx charts for each connected client.
-- Gravatar support.
-- Automatic Light / Dark Mode
-- Multilanguage Support
-- One Time Links
-- Client expiration with date and time
-- Prometheus and JSON metrics support
-- IPv6 support
-- CIDR support
-- 2FA support
-- Per-client firewall filtering (requires iptables)
-- OAuth support for Google and GitHub, plus generic OIDC providers such as Authelia and Authentik
-- Experimental AmneziaWG support
+- OIDC login with an allow-listed group. Membership is checked at login.
+- One configuration per login session, downloadable as `.conf` or QR exactly once.
+- The private key is erased as soon as a delivery succeeds.
+- A grant must be downloaded and connected within 10 minutes, and expires after 8 hours.
+- Logging out removes the current session and its WireGuard peer immediately.
+- Users can see and revoke all of their live grants, including ones from other sessions.
+- Three live grants per user at most; the oldest is evicted by a fourth login.
+- Re-issuing a configuration is rate-limited.
+- Per-grant MTU (default 1300) and DNS settings.
+- Optional Prometheus and JSON metrics (`METRICS_ENABLED=true`).
+- IPv6, multi-client CIDR layouts, and experimental AmneziaWG support.
+- Fail-closed revocation and boot-time reconciliation, so a deleted grant never
+  survives a restart.
 
-> [!NOTE]
-> To better manage documentation for this project, it has its own site here: [https://wg-easy.github.io/wg-easy/latest](https://wg-easy.github.io/wg-easy/latest)
-
-- [Getting Started](https://wg-easy.github.io/wg-easy/latest/getting-started/)
-- [Basic Installation](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/basic-installation/)
-- [Caddy](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/caddy/)
-- [Traefik](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/traefik/)
-- [Podman](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/podman-nft/)
-- [AdGuard Home](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/adguard/)
-
-> [!NOTE]
-> If you want to migrate from the old version to the new version, you can find the migration guide here: [Migration Guide](https://wg-easy.github.io/wg-easy/latest/advanced/migrate/)
+The full behaviour and timer contract are documented in
+[docs/access-portal-design.md](docs/access-portal-design.md).
 
 ## Installation
 
-This is a quick start guide to get you up and running with WireGuard Easy.
+You need a WireGuard host, Docker, and an OpenID Connect provider that exposes a group
+claim (for example Keycloak, Authentik, Authelia, or Entra ID).
 
-For a more detailed installation guide, please refer to the [Getting Started](https://wg-easy.github.io/wg-easy/latest/getting-started/) page.
+Create a `compose.yml` with the settings from
+[docker-compose.yml](docker-compose.yml), then provide at least:
 
-### 1. Install Docker
-
-If you haven't installed Docker yet, install it by running as root:
-
-```shell
-curl -sSL https://get.docker.com | sh
-exit
+```dotenv
+OAUTH_OIDC_SERVER=https://idp.example.com
+OAUTH_OIDC_CLIENT_ID=wg-easy
+OAUTH_OIDC_CLIENT_SECRET=...
+OIDC_ALLOWED_GROUPS=vpn-users
+VPN_HOST=vpn.example.com
 ```
 
-And log in again.
+Register `https://your-portal.example.com/api/auth/callback` as the redirect URI at your
+identity provider. The same client is used for RP-initiated logout when the provider
+advertises an `end_session_endpoint`.
 
-### 2. Run WireGuard Easy
+Start it with:
 
-The easiest way to run WireGuard Easy is with Docker Compose.
+```shell
+docker compose up -d
+```
 
-Just follow [these steps](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/basic-installation/) in the detailed documentation.
+The portal listens on port `51821` (HTTP). Put it behind a TLS-terminating reverse proxy
+and set `TRUSTED_PROXIES` so forwarded headers are trusted. If you terminate TLS in
+front of the container, also leave `INSECURE=false` so session cookies are marked
+`Secure`.
 
-You can also install WireGuard Easy with the [docker run command](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/docker-run/) or via [podman](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/podman-nft/).
+The container starts only when `OAUTH_OIDC_SERVER`, `OAUTH_OIDC_CLIENT_ID`,
+`OAUTH_OIDC_CLIENT_SECRET`, and `OIDC_ALLOWED_GROUPS` are set. Upgrading from an earlier
+release is destructive: start once with `PORTAL_WIPE_LEGACY=1` to remove long-lived
+clients and legacy accounts.
 
-Now [setup a reverse proxy](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/basic-installation/#setup-reverse-proxy) to be able to access the Web UI securely from the internet. This step is optional, just make sure to follow the guide [here](https://wg-easy.github.io/wg-easy/latest/examples/tutorials/reverse-proxyless/) if you decide not to do it.
-
-## Donate
-
-Are you enjoying this project? Consider donating.
-
-Founder: [Buy Emile a beer!](https://github.com/sponsors/WeeJeWel) 🍻
-
-Maintainer: [Buy kaaax0815 a coffee!](https://github.com/sponsors/kaaax0815) ☕
+The documentation site has the full configuration reference:
+[https://wg-easy.github.io/wg-easy/latest](https://wg-easy.github.io/wg-easy/latest)
 
 ## Development
 
 ### Prerequisites
 
 - Docker
-- Node LTS & corepack enabled
-- Visual Studio Code
+- Node LTS with corepack enabled
 
-### Dev Server
+### Dev server
 
-This starts the development server with docker
+`pnpm dev` starts the portal together with a disposable mock OpenID Connect
+provider, so no external IdP is needed:
 
 ```shell
 pnpm dev
 ```
 
-### Update Auto Imports
+Open <http://localhost:51821> and sign in. The mock provider always approves the
+configured user (`Dev User`, groups: `vpn-users`) and is reachable from your
+browser as <http://mock-idp.localhost:9000>. Both the portal container and the
+browser use that same issuer URL; Docker resolves it to the mock service and
+browsers resolve `*.localhost` to loopback. If your browser does not, add
+`127.0.0.1 mock-idp.localhost` to your hosts file.
 
-If you add something that should be auto-importable and VSCode complains, run:
+The mock user and group are configurable through `MOCK_OIDC_NAME`,
+`MOCK_OIDC_EMAIL`, `MOCK_OIDC_USERNAME`, and `MOCK_OIDC_GROUPS`. To develop
+against a real identity provider instead, override `OAUTH_OIDC_SERVER`,
+`OAUTH_OIDC_CLIENT_ID`, `OAUTH_OIDC_CLIENT_SECRET`, and `OIDC_ALLOWED_GROUPS`:
+
+```shell
+export OAUTH_OIDC_SERVER=https://idp.example.com
+export OAUTH_OIDC_CLIENT_ID=wg-easy
+export OAUTH_OIDC_CLIENT_SECRET=...
+export OIDC_ALLOWED_GROUPS=vpn-users
+pnpm dev
+```
+
+### Checks
 
 ```shell
 cd src
-pnpm install
-cd ..
+pnpm typecheck
+pnpm lint
+pnpm format:check
+pnpm test:unit
 ```
 
-### Test Cli
-
-This starts the cli with docker
+End-to-end tests build the image and start a disposable stack with a mock OIDC provider:
 
 ```shell
-pnpm cli:dev
+cd src
+pnpm test:e2e:typecheck
+pnpm test:e2e
 ```
 
 ## License

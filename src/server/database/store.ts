@@ -2,7 +2,7 @@ import { ClientRepository } from './repositories/client/repository';
 import { InterfaceRepository } from './repositories/interface/repository';
 import { HooksRepository } from './repositories/hooks/repository';
 import { UserConfigRepository } from './repositories/userConfig/repository';
-import { OneTimeLinkRepository } from './repositories/oneTimeLink/repository';
+import { SessionRepository } from './repositories/session/repository';
 import { UserRepository } from './repositories/user/repository';
 import { GeneralRepository } from './repositories/general/repository';
 import type { DBExecutor, DBType } from './types';
@@ -13,7 +13,7 @@ function repositories(db: DBExecutor, interfaceName: string) {
     interfaces: new InterfaceRepository(db, interfaceName),
     hooks: new HooksRepository(db, interfaceName),
     userConfigs: new UserConfigRepository(db, interfaceName),
-    oneTimeLinks: new OneTimeLinkRepository(db),
+    sessions: new SessionRepository(db),
     users: new UserRepository(db),
     general: new GeneralRepository(db),
   };

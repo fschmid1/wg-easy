@@ -20,6 +20,11 @@ To automatically install & run `wg-easy`, simply run:
 docker run -d \
   --net wg \
   -e INSECURE=true \
+  -e OAUTH_OIDC_SERVER=https://idp.example.com \
+  -e OAUTH_OIDC_CLIENT_ID=wg-easy \
+  -e OAUTH_OIDC_CLIENT_SECRET=change-me \
+  -e OIDC_ALLOWED_GROUPS=vpn-users \
+  -e VPN_HOST=vpn.example.com \
   --name wg-easy \
   --ip6 fdcc:ad94:bacf:61a3::2a \
   --ip 10.42.42.42 \
@@ -38,4 +43,6 @@ docker run -d \
   ghcr.io/wg-easy/wg-easy:15
 ```
 
-The Web UI will now be available at <http://0.0.0.0:51821>.
+The portal will now be available at <http://0.0.0.0:51821>. Register
+`https://your-portal.example.com/api/auth/callback` at your identity provider before
+signing in.

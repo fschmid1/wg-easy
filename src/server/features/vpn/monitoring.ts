@@ -1,16 +1,28 @@
 import { getDatabase } from '#db';
 import { wg } from '#server/utils/wgHelper';
-import { mergeClientStatuses } from '#server/utils/clientStatus';
-import { isPeerConnected } from '#shared/utils/time';
 
 async function read() {
   const { network, clients } = await getDatabase().transaction(async (tx) => ({
     network: await tx.interfaces.get(),
-    clients: await tx.clients.getAllPublic(),
+    clients: await tx.clients.getAll(),
   }));
-  const peers = await wg.dump(network.name);
+  const peers = await wg.dump(network.name).catch(() => []);
+  const byKey = new Map(peers.map((peer) => [peer.publicKey, peer]));
   const now = Date.now();
-  const status = mergeClientStatuses(clients, peers);
+  const status = clients.map((client) => {
+    const peer = byKey.get(client.publicKey);
+    return {
+      name: client.name,
+      enabled: client.enabled,
+      ipv4Address: client.ipv4Address,
+      ipv6Address: client.ipv6Address,
+      publicKey: client.publicKey,
+      endpoint: peer?.endpoint ?? null,
+      latestHandshakeAt: peer?.latestHandshakeAt ?? null,
+      transferRx: peer?.transferRx ?? null,
+      transferTx: peer?.transferTx ?? null,
+    };
+  });
   return {
     interfaceName: network.name,
     clients: status,
@@ -18,8 +30,10 @@ async function read() {
     counts: {
       wireguard_configured_peers: status.length,
       wireguard_enabled_peers: status.filter((client) => client.enabled).length,
-      wireguard_connected_peers: status.filter((client) =>
-        isPeerConnected(client, now)
+      wireguard_connected_peers: status.filter(
+        (client) =>
+          client.latestHandshakeAt !== null &&
+          now - client.latestHandshakeAt.getTime() < 180_000
       ).length,
     },
   };
@@ -52,12 +66,10 @@ export async function prometheus() {
   for (const client of clients) {
     const id = formatPrometheusLabels({
       interface: interfaceName,
-      enabled: client.enabled,
       ipv4Address: client.ipv4Address,
       ipv6Address: client.ipv6Address,
       name: client.name,
     });
-
     wireguardSentBytes.push(
       `wireguard_sent_bytes{${id}} ${client.transferTx ?? 0}`
     );
@@ -67,7 +79,6 @@ export async function prometheus() {
     wireguardLatestHandshakeSeconds.push(
       `wireguard_latest_handshake_seconds{${id}} ${client.latestHandshakeAt ? (now - client.latestHandshakeAt.getTime()) / 1000 : 0}`
     );
-
     if (client.endpoint) {
       const endpointId = formatPrometheusLabels({
         interface: interfaceName,
@@ -79,10 +90,8 @@ export async function prometheus() {
       );
     }
   }
-
   const id = formatPrometheusLabels({ interface: interfaceName });
-
-  const returnText = [
+  return [
     '# HELP wireguard_configured_peers',
     '# TYPE wireguard_configured_peers gauge',
     `wireguard_configured_peers{${id}} ${counts.wireguard_configured_peers}`,
@@ -111,9 +120,7 @@ export async function prometheus() {
     '# TYPE wireguard_peer_endpoint_info gauge',
     `${wireguardEndpointInfo.join('\n')}`,
     '',
-  ];
-
-  return returnText.join('\n');
+  ].join('\n');
 }
 
 function escapePrometheusLabelValue(value: string): string {

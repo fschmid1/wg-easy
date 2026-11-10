@@ -2,17 +2,27 @@
 title: Prometheus
 ---
 
-To monitor the WireGuard server, you can use [Prometheus](https://prometheus.io/) and [Grafana](https://grafana.com/). The container exposes a `/metrics/prometheus` endpoint that can be scraped by Prometheus.
+To monitor the WireGuard server, you can use [Prometheus](https://prometheus.io/) and
+[Grafana](https://grafana.com/). The container exposes `/metrics/prometheus` and
+`/metrics/json`.
 
-## Enable Prometheus
+## Enable metrics
 
-To enable Prometheus metrics, go to Admin Panel > General and enable Prometheus.
+Metrics are off by default:
 
-You can optionally set a Bearer Password for the metrics endpoints. This is useful if you want to expose the metrics endpoint to the internet.
+```yaml
+environment:
+    - METRICS_ENABLED=true
+```
+
+There is no admin UI switch. The two database flags are synchronised from
+`METRICS_ENABLED` at startup.
+
+When enabled, the endpoints are reachable without authentication unless you protect
+them at the reverse proxy. Add an access rule or a separate listener before exposing
+them to the internet.
 
 ## Configure Prometheus
-
-You need to add a scrape config to your Prometheus configuration file. Here is an example:
 
 ```yaml
 scrape_configs:
@@ -22,6 +32,11 @@ scrape_configs:
       static_configs:
           - targets:
                 - 'localhost:51821'
+```
+
+If your reverse proxy requires a bearer token for `/metrics/*`, add:
+
+```yaml
       authorization:
           type: Bearer
           credentials: 'SuperSecurePassword'
@@ -37,7 +52,18 @@ You can use the following Grafana dashboard to visualize the metrics:
 
 /// note | Unofficial
 
-The Grafana dashboard is not official and is not maintained by the `wg-easy` team. If you have any issues with the dashboard, please contact the author of the dashboard.
+The Grafana dashboard is not official and is not maintained by the `wg-easy` team. If
+you have any issues with the dashboard, please contact the author of the dashboard.
 See [#1299](https://github.com/wg-easy/wg-easy/pull/1299) for more information.
 
 ///
+
+## Metrics
+
+WireGuard peers are now short-lived grants. The peer labels therefore reflect the
+device name captured at issuance and disappear when the grant is revoked:
+
+- `wireguard_configured_peers`, `wireguard_enabled_peers`, `wireguard_connected_peers`
+- `wireguard_sent_bytes`, `wireguard_received_bytes`
+- `wireguard_latest_handshake_seconds`
+- `wireguard_peer_endpoint_info`

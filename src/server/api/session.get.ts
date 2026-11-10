@@ -1,5 +1,3 @@
-import { defineEventHandler } from 'nuxt/server';
+import { defineAuthenticatedEventHandler } from '#server/utils/handler';
 
-import { currentSessionUser } from '#server/features/identity/session';
-
-export default defineEventHandler(currentSessionUser);
+export default defineAuthenticatedEventHandler(({ user }) => user);

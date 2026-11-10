@@ -6,19 +6,38 @@ hide:
 
 Here are some frequently asked questions or errors about `wg-easy`. If you have a question that is not answered here, please feel free to open a discussion on GitHub.
 
-## How do I restrict client access to specific networks or servers?
+## Why can't I open my configuration a second time?
 
-Use the **Per-Client Firewall** feature to enforce server-side restrictions on what each client can access.
+A configuration is delivered exactly once. The first successful `.conf` download or QR
+reveal erases the private key. If the download was aborted before it completed, the
+claim is released and you can try again while the download window is open. If the
+window has already closed, use **Generate config** to issue a new grant; issuance is
+rate-limited.
 
-**Requirements:** The host kernel must provide the firewall support required by `iptables` (and `ip6tables` for IPv6), either built in or through loaded kernel modules.
+## Why is the connection refused before the first handshake?
 
-1. Turn on **Enable Per-Client Firewall** in **Admin Panel → Interface → Traffic Filtering** and select **Save**
-2. Edit a client and configure "Firewall Allowed IPs"
-3. Specify which destinations the client should be allowed to access
+The portal counts a grant as connected only after a real WireGuard handshake. Make sure
+the client imported the full configuration, is using the same endpoint and port, and
+connects before the connect deadline (10 minutes by default). Check `wg show` on the
+host and the container logs if the client reports a handshake timeout.
 
-Unlike "Allowed IPs" which only controls client-side routing, firewall rules are enforced by the server and cannot be bypassed.
+## How do I change the client subnet or DNS?
 
-See the [Admin Panel Guide](./guides/admin.md#per-client-firewall) and [Client Guide](./guides/clients.md#firewall-allowed-ips) for detailed configuration.
+Set `VPN_IPV4_CIDR`, `VPN_IPV6_CIDR`, and `VPN_DNS`. Changing a CIDR revokes existing
+grants at the next startup because their addresses belong to the old subnet. See the
+[configuration reference](./advanced/config/optional-config.md).
+
+## How many devices can a user connect?
+
+A user may have at most three live grants across all sessions. A fourth login evicts
+the oldest grant and ends its session. Re-issuing inside one session replaces that
+session's grant and uses the same shared hourly limit.
+
+## What happens when a user is removed from the OIDC group?
+
+The group is checked only at login. The existing session and grant keep working until
+they expire: at most the grant's maximum lifetime (8 hours) and the session's absolute
+lifetime. There is no token storage, so the portal cannot detect the removal sooner.
 
 ## Error: WireGuard exited with the error: Cannot find device "wg0"
 

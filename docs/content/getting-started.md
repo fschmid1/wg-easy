@@ -4,44 +4,56 @@ hide:
     - navigation
 ---
 
-This page explains how to get started with `wg-easy`. The guide uses Docker Compose as a reference. In our examples, we mount the named volume `etc_wireguard` to `/etc/wireguard` inside the container.
+This page explains how to run the `wg-easy` access portal. The guide uses Docker
+Compose as a reference. In our examples, we mount the named volume `etc_wireguard` to
+`/etc/wireguard` inside the container.
 
 ## Preliminary Steps
 
-Before you can get started with deploying your own VPN, there are some requirements to be met:
+Before you can deploy the portal, you need:
 
-1. You need to have a host that you can manage
-2. You need to have a domain name or a public IP address
-3. You need a supported architecture (x86_64, arm64)
+1. A Linux host that can run WireGuard and a container runtime.
+2. A public DNS name or IP address for the WireGuard endpoint.
+3. An OpenID Connect provider that exposes a group claim.
+4. A supported architecture (x86_64, arm64).
 
 ### Host Setup
 
-There are a few requirements for a suitable host system:
-
-1. You need to have a container runtime installed
-
-/// note | About the Container Runtime
-
-On the host, you need to have a suitable container runtime (like _Docker_ or _Podman_) installed. We assume [_Docker Compose_][docker-compose] is [installed][docker-compose-installation]. We have aligned file names and configuration conventions with the latest [Docker Compose specification][docker-compose-specification].
-If you're using podman, make sure to read the related [documentation][docs-podman].
-
-///
+You need a container runtime (like _Docker_ or _Podman_) and
+[Docker Compose][docker-compose]. If you use Podman, read the related
+[documentation][docs-podman] first.
 
 [docker-compose]: https://docs.docker.com/compose/
-[docker-compose-installation]: https://docs.docker.com/compose/install/
-[docker-compose-specification]: https://docs.docker.com/compose/compose-file/
 [docs-podman]: ./examples/tutorials/podman-nft.md
 
-## Deploying the Actual Image
+## Identity Provider
+
+Register a confidential client at your provider:
+
+| Setting        | Value                                                   |
+| -------------- | ------------------------------------------------------- |
+| Redirect URI   | `https://your-portal.example.com/api/auth/callback`     |
+| Post logout    | `https://your-portal.example.com/`                      |
+| Scopes         | `openid email profile groups` (adjust the group scope)  |
+| Grant type     | Authorization code with PKCE                            |
+
+Only members of the groups listed in `OIDC_ALLOWED_GROUPS` may request a
+configuration. Group membership is checked when the user signs in; removing a user
+from the group does not terminate a session that already exists. The worst-case
+offboarding window is the grant's maximum lifetime (8 hours by default).
+
+See [OIDC Authentication](./advanced/config/external-authentication.md) for every
+provider-related variable, including nested group claims and an optional email-domain
+gate.
+
+## Deploying the Image
 
 ### Tagging Convention
 
-To understand which tags you should use, read this section carefully. [Our CI][github-ci] will automatically build, test and push new images to the following container registry:
+[Our CI][github-ci] builds, tests, and pushes images to:
 
 1. GitHub Container Registry ([`ghcr.io/wg-easy/wg-easy`][ghcr-image])
-2. Codeberg Container Registry ([`codeberg.org/wg-easy/wg-easy`][codeberg-image]) (IPv6 support)
-
-All workflows are using the tagging convention listed below. It is subsequently applied to all images.
+2. Codeberg Container Registry ([`codeberg.org/wg-easy/wg-easy`][codeberg-image])
 
 | tag           | Type                            | Example                                                       | Description                                                                   |
 | ------------- | ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -52,20 +64,40 @@ All workflows are using the tagging convention listed below. It is subsequently 
 | `development` | pull requests                   | `ghcr.io/wg-easy/wg-easy:development`                         | used for development, testing code from PRs                                   |
 | `latest`      | latest tag                      | `ghcr.io/wg-easy/wg-easy:latest` or `ghcr.io/wg-easy/wg-easy` | points to the v14 release, should be avoided                                  |
 
-<!-- ref: major version (check links too) -->
-
-When publishing a tag we follow the [Semantic Versioning][semver] specification. Pin to the latest major version to avoid breaking changes (e.g. `15`), avoid using the `latest` tag.
+When publishing a tag we follow the [Semantic Versioning][semver] specification. Pin to
+the latest major version to avoid breaking changes (e.g. `15`), avoid using the `latest`
+tag.
 
 [github-ci]: https://github.com/wg-easy/wg-easy/actions
 [ghcr-image]: https://github.com/wg-easy/wg-easy/pkgs/container/wg-easy
 [codeberg-image]: https://codeberg.org/wg-easy/-/packages/container/wg-easy/15
 [semver]: https://semver.org/
 
-### Follow tutorials
+### Required environment
 
-- [Basic Installation with Docker Compose (Recommended)](./examples/tutorials/basic-installation.md)
-- [Simple Installation with Docker Run](./examples/tutorials/docker-run.md)
-- [Advanced Installation with Podman](./examples/tutorials/podman-nft.md)
+```dotenv
+OAUTH_OIDC_SERVER=https://idp.example.com
+OAUTH_OIDC_NAME=Example IdP
+OAUTH_OIDC_CLIENT_ID=wg-easy
+OAUTH_OIDC_CLIENT_SECRET=...
+OIDC_ALLOWED_GROUPS=vpn-users
+VPN_HOST=vpn.example.com
+```
+
+The container refuses to start when the OIDC server, client ID, client secret, or
+allowed groups are missing. `VPN_HOST` is the host name or address written into every
+generated configuration.
+
+Start it with:
+
+```shell
+docker compose up -d
+```
+
+The portal listens on `51821/tcp` and WireGuard on `51820/udp` by default. Terminate TLS
+at a reverse proxy and set `TRUSTED_PROXIES` so forwarded host and scheme headers are
+trusted. Keep `INSECURE=false` for HTTPS deployments so the session cookie is marked
+`Secure`.
 
 /// danger | Use the Correct Commands For Stopping and Starting `wg-easy`
 
@@ -73,4 +105,19 @@ When publishing a tag we follow the [Semantic Versioning][semver] specification.
 
 ///
 
-**That's it! It really is that easy**.
+### Follow tutorials
+
+- [Basic Installation with Docker Compose (Recommended)](./examples/tutorials/basic-installation.md)
+- [Simple Installation with Docker Run](./examples/tutorials/docker-run.md)
+- [Advanced Installation with Podman](./examples/tutorials/podman-nft.md)
+
+## First login
+
+Open the portal, sign in with the identity provider, and press **Generate config**.
+Download the `.conf` file or show the QR code immediately: the configuration is
+delivered **once**. Import it into a WireGuard client and connect within the connect
+deadline (10 minutes by default). The grant expires after 8 hours, or immediately when
+you log out.
+
+After the configuration has been delivered, the private key is erased and cannot be
+shown again. Use **Generate config** to replace it; issuance is rate-limited.
