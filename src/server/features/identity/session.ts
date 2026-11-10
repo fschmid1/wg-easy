@@ -1,148 +1,77 @@
-import { createError, getSession, isNuxtError, useSession } from 'nuxt/server';
-import * as oauthClient from 'openid-client';
+import { createHash, randomBytes } from 'node:crypto';
+
+import {
+  createError,
+  deleteCookie,
+  getCookie,
+  setCookie,
+  useSession,
+} from 'nuxt/server';
 import type { RequestEvent } from 'nuxt/server';
+import * as oauthClient from 'openid-client';
 
-import { buildOauthConfig, getUserInfo } from './oauth';
+import * as oauth from './oauth';
 
-import * as identity from '#server/features/identity';
+import * as grants from '#server/features/vpn/grants';
+import { publicUser } from '#server/features/identity';
 import { getDatabase } from '#db';
-import { WG_ENV, SERVER_DEBUG } from '#server/utils/config';
-import { logSecurityEvent } from '#server/utils/securityLogger';
-import { getTrustedRequestURL } from '#server/http/request';
-import type {
-  Actor,
-  PendingLogin,
-  PublicUser,
-} from '#shared/contracts/identity';
+import {
+  OIDC_ENV,
+  SESSION_ENV,
+  SERVER_DEBUG,
+  WG_ENV,
+} from '#server/utils/config';
+import type { PortalUser } from '#shared/contracts/identity';
 
-type WGSession = Partial<{
-  userId: number;
-  pendingLogin: PendingLogin;
+const SESSION_COOKIE = 'wg-portal';
+const FLOW_COOKIE = 'wg-portal-flow';
+
+type FlowSession = Partial<{
   oauth_verifier: string;
   oauth_nonce: string;
   oauth_state: string;
 }>;
 
-const clearTransientState = {
-  pendingLogin: undefined,
+const clearFlow = {
   oauth_nonce: undefined,
   oauth_state: undefined,
   oauth_verifier: undefined,
 };
 
-async function authenticate(
-  event: RequestEvent,
-  result: Awaited<
-    ReturnType<typeof identity.login | typeof identity.loginWithOAuth>
-  >,
-  remember = false
-) {
-  if (!result.success && result.error !== 'TOTP_REQUIRED') {
-    const messages = {
-      INCORRECT_CREDENTIALS: 'Invalid username or password',
-      USER_DISABLED: 'User disabled',
-      USER_ALREADY_LINKED:
-        'User already linked with different account or provider',
-      AUTO_REGISTER_DISABLED: 'Auto registration is disabled',
-      UNEXPECTED_ERROR: 'Unexpected error',
-    };
-    throw createError({
-      status: result.error === 'UNEXPECTED_ERROR' ? 500 : 401,
-      statusText: messages[result.error],
-    });
-  }
-  const session = await useWGSession(event, remember);
-  if (!result.success) {
-    await session.update({
-      ...clearTransientState,
-      userId: undefined,
-      pendingLogin: result.pendingLogin,
-    });
-    return { status: 'TOTP_REQUIRED' as const };
-  }
-  await session.update({ ...clearTransientState, userId: result.user.id });
-  SERVER_DEBUG(
-    `New Session: ${session.id} for ${result.user.id} (${result.user.username})`
-  );
-  return { status: 'success' as const };
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex');
 }
 
-export async function login(
-  event: RequestEvent,
-  credentials: { username: string; password: string; remember?: boolean }
-) {
-  const { username, password, remember } = credentials;
-  const result = await identity.login(username, password, remember);
-  if (!result.success && result.error === 'INCORRECT_CREDENTIALS') {
-    logSecurityEvent(event, 'password', username);
-  }
-  return authenticate(event, result, remember);
+async function sessionPassword() {
+  return (await getDatabase().general.getSessionConfig()).sessionPassword;
 }
 
-export async function completeSecondFactor(event: RequestEvent, code: string) {
-  const { data } = await getWGSession(event);
-  const pendingLogin = data.pendingLogin;
-  const result = await identity.completeSecondFactor(pendingLogin, code);
-  if (result.status === 'INVALID_TOTP_CODE') {
-    logSecurityEvent(event, '2fa');
-    return { status: result.status };
-  }
-  if (result.status === 'USER_DISABLED') {
-    throw createError({ status: 401, statusText: 'User disabled' });
-  }
-  const session = await useWGSession(event, pendingLogin?.remember);
-  await session.update({
-    ...clearTransientState,
-    userId: result.status === 'success' ? result.userId : undefined,
+async function useFlowSession(event: RequestEvent) {
+  return useSession<FlowSession>(event, {
+    name: FLOW_COOKIE,
+    password: await sessionPassword(),
+    maxAge: 10 * 60,
+    cookie: { maxAge: 10 * 60, secure: !WG_ENV.INSECURE },
   });
-  return { status: result.status };
 }
 
-export async function pendingLogin(event: RequestEvent) {
-  const session = await useWGSession(event);
-  const pending = identity.pending(session.data.pendingLogin);
-  if (!pending) {
-    await session.update(clearTransientState);
-    throw createError({
-      status: 401,
-      statusText: 'No pending authentication',
-    });
-  }
-  return { type: pending.type };
-}
-
-export async function cancelLogin(event: RequestEvent) {
-  const session = await useWGSession(event);
-  await session.update(clearTransientState);
-  return { success: true as const };
-}
-
-export async function beginOAuth(event: RequestEvent, link = false) {
-  if (link) {
-    await getCurrentUser(event);
-  }
-  const { config, provider, providerConfig } = await buildOauthConfig(event);
-  const { origin } = getTrustedRequestURL(
-    event,
-    WG_ENV.TRUSTED_PROXIES,
-    WG_ENV.INSECURE ? 'http' : 'https'
-  );
+export async function beginLogin(event: RequestEvent) {
+  const config = await oauth.buildOidcConfig();
   const verifier = oauthClient.randomPKCECodeVerifier();
   const challenge = await oauthClient.calculatePKCECodeChallenge(verifier);
   const nonce = oauthClient.randomNonce();
   const state = oauthClient.randomState();
-  const session = await useWGSession(event);
+  const session = await useFlowSession(event);
   await session.update({
-    ...clearTransientState,
+    ...clearFlow,
     oauth_nonce: nonce,
     oauth_verifier: verifier,
     oauth_state: state,
   });
   return oauthClient
     .buildAuthorizationUrl(config, {
-      ...providerConfig.params,
-      redirect_uri: `${origin}/api/auth/${provider}/${link ? 'link' : 'callback'}`,
-      scope: providerConfig.scope,
+      redirect_uri: oauth.callbackUrl(event),
+      scope: OIDC_ENV.SCOPES.join(' '),
       code_challenge: challenge,
       code_challenge_method: 'S256',
       nonce,
@@ -151,149 +80,150 @@ export async function beginOAuth(event: RequestEvent, link = false) {
     .toString();
 }
 
-export async function completeOAuth(event: RequestEvent, actor?: Actor) {
-  const { config, provider, providerConfig } = await buildOauthConfig(event);
-  const session = await useWGSession(event);
+export async function completeLogin(event: RequestEvent) {
+  const config = await oauth.buildOidcConfig();
+  const session = await useFlowSession(event);
   const { oauth_nonce, oauth_verifier, oauth_state } = session.data;
   if (!oauth_nonce || !oauth_verifier || !oauth_state) {
-    throw createError({
-      status: 400,
-      statusText: 'Missing OAuth State',
-    });
+    throw createError({ status: 400, statusText: 'Missing OAuth state' });
   }
-  // Consume transient state on both successful and rejected exchanges.
-  await session.update(clearTransientState);
-  const info = await getUserInfo(
-    event,
-    config,
-    { oauth_nonce, oauth_verifier, oauth_state },
-    providerConfig
-  );
-  if (actor) {
-    await identity.linkOauth(actor, provider, info.sub);
-    return '/me';
-  }
-  const result = await identity.loginWithOAuth(
-    provider,
-    info.sub,
-    info.preferred_username || info.email,
-    info.email,
-    info.name || 'User'
-  );
-  const login = await authenticate(event, result);
-  return login.status === 'TOTP_REQUIRED' ? '/login/2fa' : '/';
+  await session.update(clearFlow);
+
+  const info = await oauth.getUserInfo(event, config, {
+    oauth_nonce,
+    oauth_verifier,
+    oauth_state,
+  });
+
+  const user = await upsertUser(info);
+  await grants.enforceCap(user.id);
+  await createSession(event, user.id);
+  SERVER_DEBUG(`New portal session for user ${user.id} (${user.username})`);
+  return publicUser(user);
 }
 
-export async function currentSessionUser(event: RequestEvent) {
-  const session = await getWGSession(event);
-  if (!session.data.userId || session.data.pendingLogin) {
+async function upsertUser(info: {
+  sub: string;
+  email: string;
+  username: string;
+  name: string;
+}) {
+  return getDatabase().transaction(async ({ users }) => {
+    const linked = await users.getByOAuth('oidc', info.sub);
+    if (linked) {
+      return linked;
+    }
+    const existing = await users.getByEmail(info.email);
+    if (existing) {
+      await users.update(existing.id, {
+        oauthProvider: 'oidc',
+        oauthId: info.sub,
+      });
+      return { ...existing, oauthProvider: 'oidc', oauthId: info.sub };
+    }
+    let username = info.username;
+    for (let suffix = 1; await users.getByUsername(username); suffix++) {
+      username = `${info.username}-${suffix}`;
+    }
+    const [created] = await users.insert({
+      username,
+      password: null,
+      email: info.email,
+      name: info.name,
+      role: 2,
+      totpVerified: false,
+      enabled: true,
+      oauthProvider: 'oidc',
+      oauthId: info.sub,
+    });
+    if (!created) {
+      throw new Error('Failed to create user');
+    }
+    return created;
+  });
+}
+
+async function createSession(event: RequestEvent, userId: number) {
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + SESSION_ENV.ABSOLUTE).toISOString();
+  await getDatabase().sessions.create(hashToken(token), userId, expiresAt);
+  setCookie(event, SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !WG_ENV.INSECURE,
+    path: '/',
+    maxAge: Math.floor(SESSION_ENV.ABSOLUTE / 1000),
+  });
+}
+
+export async function currentSessionId(event: RequestEvent) {
+  const token = getCookie(event, SESSION_COOKIE);
+  return token ? hashToken(token) : undefined;
+}
+
+export async function getCurrentUser(event: RequestEvent): Promise<PortalUser> {
+  const token = getCookie(event, SESSION_COOKIE);
+  if (!token) {
     throw createError({ status: 401, statusText: 'Not authenticated' });
   }
-  const user = await identity.sessionUser(session.data.userId);
-  if (!user) {
-    throw createError({
-      status: 404,
-      statusText: 'Not found in Database',
-    });
+  const id = hashToken(token);
+  const row = await getDatabase().sessions.get(id);
+  if (!row || row.revokedAt) {
+    throw createError({ status: 401, statusText: 'Not authenticated' });
   }
-  return user;
-}
-
-export async function logout(event: RequestEvent) {
-  const session = await useWGSession(event);
-  const sessionId = session.id;
-  await session.clear();
-  SERVER_DEBUG(`Deleted Session: ${sessionId}`);
-  return { success: true };
-}
-
-async function sessionConfig(rememberMe = false) {
-  const { sessionPassword, sessionTimeout } =
-    await getDatabase().general.getSessionConfig();
-  const maxAge = rememberMe ? sessionTimeout : undefined;
-  return {
-    password: sessionPassword,
-    name: 'wg-easy',
-    // Expire both the remembered cookie and its sealed contents.
-    maxAge,
-    cookie: {
-      // Preserve Max-Age=0 too; Nuxt only applies a truthy top-level maxAge.
-      maxAge,
-      secure: !WG_ENV.INSECURE,
-    },
-  };
-}
-
-async function useWGSession(event: RequestEvent, rememberMe = false) {
-  return useSession<WGSession>(event, await sessionConfig(rememberMe));
-}
-
-async function getWGSession(event: RequestEvent) {
-  return getSession<WGSession>(event, await sessionConfig());
-}
-
-export async function getCurrentUser(event: RequestEvent) {
-  const session = await getWGSession(event);
-  const authorization = event.req.headers.get('Authorization');
-  let user: PublicUser | undefined;
-  if (session.data.pendingLogin) {
-    throw createError({
-      status: 401,
-      statusText: 'Authentication pending',
-    });
+  const now = Date.now();
+  if (now >= Date.parse(row.expiresAt)) {
+    await endSession(id);
+    throw createError({ status: 401, statusText: 'Session expired' });
   }
-  if (session.data.userId) {
-    // Handle if authenticating using Session
-    user = await identity.sessionUser(session.data.userId);
-  } else if (authorization) {
-    identity.assertPasswordEnabled();
-
-    // Handle if authenticating using Header
-    const [method, value] = authorization.split(' ');
-    // Support Basic Authentication
-    // TODO: support personal access token or similar
-    if (method !== 'Basic' || !value) {
-      logSecurityEvent(event, 'basic');
-      throw createError({
-        status: 400,
-        statusText: 'Invalid Basic Authorization',
-      });
-    }
-
-    const basicValue = Buffer.from(value, 'base64').toString('utf-8');
-
-    // Split by first ":"
-    const index = basicValue.indexOf(':');
-    const username = basicValue.substring(0, index);
-    const password = basicValue.substring(index + 1);
-
-    if (!username || !password) {
-      logSecurityEvent(event, 'basic', username);
-      throw createError({
-        status: 400,
-        statusText: 'Invalid Basic Authorization',
-      });
-    }
-
-    try {
-      user = await identity.authenticateBasic(username, password);
-    } catch (error) {
-      if (isNuxtError(error) && [401, 403].includes(error.status)) {
-        logSecurityEvent(event, 'basic', username);
-      }
-      throw error;
-    }
-  } else {
-    throw createError({
-      status: 401,
-      statusText: 'Session failed. No Authorization',
-    });
+  if (now - Date.parse(row.lastSeenAt) > SESSION_ENV.IDLE) {
+    await endSession(id);
+    throw createError({ status: 401, statusText: 'Session timed out' });
   }
-  if (!user) {
-    throw createError({
-      status: 401,
-      statusText: 'Session failed. User not found',
-    });
+  if (now - Date.parse(row.lastSeenAt) > 60_000) {
+    await getDatabase().sessions.touch(id, new Date(now).toISOString());
   }
-  return user;
+  const user = await getDatabase().users.get(row.userId);
+  if (!user || !user.enabled) {
+    throw createError({ status: 401, statusText: 'Not authenticated' });
+  }
+  return publicUser(user);
+}
+
+/** Revokes the current session and its grant, then clears the cookie. */
+export async function destroySession(event: RequestEvent) {
+  const id = await currentSessionId(event);
+  if (id) {
+    await endSession(id);
+  }
+  deleteCookie(event, SESSION_COOKIE, { path: '/' });
+}
+
+/** Fails closed: the session ends even if the peer removal has to be retried. */
+async function endSession(id: string) {
+  try {
+    await grants.revokeSessionGrants(id);
+  } catch (error) {
+    SERVER_DEBUG('Failed to revoke a grant while ending a session:', error);
+  } finally {
+    await getDatabase().sessions.revoke(id);
+  }
+}
+
+/** Best-effort RP-initiated logout at the identity provider. */
+export async function logoutUrl(event: RequestEvent) {
+  try {
+    const config = await oauth.buildOidcConfig();
+    return oauthClient
+      .buildEndSessionUrl(config, {
+        client_id: OIDC_ENV.CLIENT_ID!,
+        post_logout_redirect_uri: oauth
+          .callbackUrl(event)
+          .replace('/api/auth/callback', '/'),
+      })
+      .toString();
+  } catch (error) {
+    SERVER_DEBUG('IdP logout unavailable:', error);
+    return '/';
+  }
 }

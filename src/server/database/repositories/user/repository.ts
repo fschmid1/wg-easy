@@ -1,9 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, ne, or } from 'drizzle-orm';
 
 import { user } from './schema';
 
 import type { DBExecutor } from '#db/types';
-import type { OAuthProvider } from '#shared/contracts/identity';
 
 export class UserRepository {
   constructor(private readonly db: DBExecutor) {}
@@ -20,7 +19,7 @@ export class UserRepository {
     return this.db.query.user.findFirst({ where: eq(user.email, email) });
   }
 
-  async getByOAuth(provider: OAuthProvider, oauthId: string) {
+  async getByOAuth(provider: string, oauthId: string) {
     return this.db.query.user.findFirst({
       where: and(eq(user.oauthProvider, provider), eq(user.oauthId, oauthId)),
     });
@@ -36,5 +35,12 @@ export class UserRepository {
 
   async update(id: number, data: Partial<typeof user.$inferInsert>) {
     return this.db.update(user).set(data).where(eq(user.id, id));
+  }
+
+  /** Removes accounts left over from the pre-OIDC install. */
+  async deleteNonOidc() {
+    return this.db
+      .delete(user)
+      .where(or(isNull(user.oauthProvider), ne(user.oauthProvider, 'oidc')));
   }
 }

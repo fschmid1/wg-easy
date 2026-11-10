@@ -3,11 +3,46 @@ volumes:
 
 services:
   wg-easy:
-    #environment:
-    #  Optional:
-    #  - PORT=51821
-    #  - HOST=0.0.0.0
-    #  - INSECURE=false
+    environment:
+      # Required: the portal only supports OIDC logins.
+      OAUTH_OIDC_SERVER: ${OAUTH_OIDC_SERVER:?set OAUTH_OIDC_SERVER}
+      OAUTH_OIDC_NAME: ${OAUTH_OIDC_NAME:-OIDC}
+      OAUTH_OIDC_CLIENT_ID: ${OAUTH_OIDC_CLIENT_ID:?set OAUTH_OIDC_CLIENT_ID}
+      OAUTH_OIDC_CLIENT_SECRET: ${OAUTH_OIDC_CLIENT_SECRET:?set OAUTH_OIDC_CLIENT_SECRET}
+      # Only members of these groups may request a configuration.
+      OIDC_ALLOWED_GROUPS: ${OIDC_ALLOWED_GROUPS:?set OIDC_ALLOWED_GROUPS}
+      # Optional: restrict logins to an email domain, or read a nested claim.
+      # OAUTH_ALLOWED_DOMAINS: example.com
+      # OIDC_GROUPS_CLAIM: groups
+      # OIDC_SCOPES: openid email profile groups
+
+      # Client endpoint written into generated configurations.
+      VPN_HOST: ${VPN_HOST:?set VPN_HOST}
+      VPN_PORT: ${VPN_PORT:-51820}
+      VPN_MTU: ${VPN_MTU:-1300}
+      VPN_DNS: ${VPN_DNS:-1.1.1.1,2606:4700:4700::1111}
+      VPN_KEEPALIVE: ${VPN_KEEPALIVE:-25}
+      VPN_ALLOWED_IPS: ${VPN_ALLOWED_IPS:-0.0.0.0/0,::/0}
+      # VPN_IPV4_CIDR: 10.8.0.0/24
+      # VPN_IPV6_CIDR: fdcc:ad94:bacf:61a4::cafe:0/112
+      # WG_POST_UP: ...
+      # WG_POST_DOWN: ...
+
+      # Grant and session timers. See docs/access-portal-design.md.
+      # GRANT_DOWNLOAD_WINDOW: 10m
+      # GRANT_CONNECT_DEADLINE: 10m
+      # GRANT_MAX_LIFETIME: 8h
+      # GRANT_IDLE_TIMEOUT: 0
+      # GRANT_MAX_PER_USER: 3
+      # GRANT_REISSUE_PER_HOUR: 3
+      # SESSION_ABSOLUTE: 8h
+      # SESSION_IDLE: 30m
+
+      # Optional operations.
+      # INSECURE: "false"
+      # TRUSTED_PROXIES: 10.0.0.0/8
+      # METRICS_ENABLED: "false"
+      # PORTAL_WIPE_LEGACY: "0"
 
     image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-easy

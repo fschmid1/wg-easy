@@ -87,10 +87,10 @@ ENV DEBUG=Server,WireGuard,Database,CMD,Firewall
 ENV PORT=51821
 ENV HOST=0.0.0.0
 ENV INSECURE=false
-ENV INIT_ENABLED=false
+ENV VPN_MTU=1300
 ENV DISABLE_IPV6=false
 
 LABEL org.opencontainers.image.source=https://github.com/wg-easy/wg-easy
 
-# Run Web UI
+# Run the access portal
 CMD ["/usr/bin/dumb-init", "iptables-backend", "node", "server/index.mjs"]

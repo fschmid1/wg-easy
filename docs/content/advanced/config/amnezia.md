@@ -33,9 +33,13 @@ Possible values:
 
 Parameter descriptions can be found in the [AmneziaWG documentation](https://docs.amnezia.org/documentation/amnezia-wg) and on the [kernel module page](https://github.com/amnezia-vpn/amneziawg-linux-kernel-module).
 
-All parameters except I1-I5 will be set at first startup. For information on how to set I1-I5 parameters, refer to the [AmneziaWG documentation](https://docs.amnezia.org/documentation/instructions/new-amneziawg-selfhosted/#how-to-extract-a-protocol-signature-for-amneziawg-15-manually).
+The portal has no AmneziaWG settings page. The stored interface defaults are used and
+written at startup. `EXPERIMENTAL_AWG` and `OVERRIDE_AUTO_AWG` are the only
+AmneziaWG-specific environment variables.
 
-If a parameter is not set, it will not be added to the configuration. If all AmneziaWG-specific parameters are absent, AmneziaWG will be fully compatible with standard WireGuard.
+If a parameter is not set, it will not be added to the configuration. If all
+AmneziaWG-specific parameters are absent, AmneziaWG will be fully compatible with
+standard WireGuard.
 
 ### Parameter Compatibility Table
 

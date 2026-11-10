@@ -1,4 +1,4 @@
-import { defineEventHandler, createError } from 'nuxt/server';
+import { createError, defineEventHandler } from 'nuxt/server';
 
 import { WG_ENV } from '#server/utils/config';
 import { getTrustedRequestURL } from '#server/http/request';
@@ -28,7 +28,7 @@ export default defineEventHandler((event) => {
     return;
   }
 
-  // Protect login and setup too; credentials do not bypass origin validation.
+  // Protect login and grant writes too; credentials do not bypass validation.
   throw createError({
     status: 403,
     statusText: 'Invalid request origin',

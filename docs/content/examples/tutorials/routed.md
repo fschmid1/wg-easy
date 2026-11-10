@@ -79,9 +79,25 @@ Don't forget to create the necessary firewall rules to allow these subnets to tr
 
 ## `wg-easy` configuration
 
-In the Web UI → Admin → Interface, click Change CIDR and set the IPv4/IPv6 routed subnets you chose above. Save.
+Set the routed subnets and the hooks through environment variables:
 
-Then go to Admin → Hooks and add:
+```yaml
+environment:
+    - VPN_IPV4_CIDR=192.168.0.0/24
+    - VPN_IPV6_CIDR=2001:db8:abc:0::/64
+    - WG_POST_UP=iptables -A INPUT -p udp -m udp --dport {{port}} -j ACCEPT; iptables -A FORWARD -i {{interface}} -j ACCEPT; iptables -A FORWARD -o {{interface}} -j ACCEPT; ip6tables -A INPUT -p udp -m udp --dport {{port}} -j ACCEPT; ip6tables -A FORWARD -i {{interface}} -j ACCEPT; ip6tables -A FORWARD -o {{interface}} -j ACCEPT
+    - WG_POST_DOWN=iptables -D INPUT -p udp -m udp --dport {{port}} -j ACCEPT; iptables -D FORWARD -i {{interface}} -j ACCEPT; iptables -D FORWARD -o {{interface}} -j ACCEPT; ip6tables -D INPUT -p udp -m udp --dport {{port}} -j ACCEPT; ip6tables -D FORWARD -i {{interface}} -j ACCEPT; ip6tables -D FORWARD -o {{interface}} -j ACCEPT
+```
+
+/// note | Changing the CIDR revokes existing grants
+
+When `VPN_IPV4_CIDR` or `VPN_IPV6_CIDR` differs from the stored value on startup, the
+portal deletes existing grants because their addresses belong to the old subnet.
+
+///
+
+Use these values for `WG_POST_UP` and `WG_POST_DOWN`. The portal substitutes the
+placeholders before writing the interface:
 
 PostUp
 

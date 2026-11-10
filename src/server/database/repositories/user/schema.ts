@@ -3,9 +3,6 @@ import { int, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import { client } from '../client/schema';
 
-import type { Role } from '#shared/utils/permissions';
-import type { OAuthProvider } from '#shared/contracts/identity';
-
 export const user = sqliteTable(
   'users_table',
   {
@@ -15,12 +12,16 @@ export const user = sqliteTable(
     password: text(),
     email: text().unique(),
     name: text().notNull(),
-    role: int().$type<Role>().notNull(),
+    /** Legacy column kept for migration compatibility; unused by the portal. */
+    role: int().notNull(),
     totpKey: text('totp_key'),
     totpVerified: int('totp_verified', { mode: 'boolean' }).notNull(),
     enabled: int({ mode: 'boolean' }).notNull(),
-    oauthProvider: text('oauth_provider').$type<OAuthProvider>(),
+    oauthProvider: text('oauth_provider'),
     oauthId: text('oauth_id'),
+    /** Sliding hourly bucket for config issuance. */
+    grantIssuedCount: int('grant_issued_count').notNull().default(0),
+    grantWindowStart: text('grant_window_start'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),

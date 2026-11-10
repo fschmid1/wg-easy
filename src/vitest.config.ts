@@ -13,11 +13,13 @@ export default defineConfig({
             '#db': fileURLToPath(
               new URL('./server/database/', import.meta.url)
             ),
+            '@@': fileURLToPath(new URL('.', import.meta.url)),
           },
         },
         test: {
           name: 'unit',
           include: ['test/unit/*.{test,spec}.ts'],
+          setupFiles: ['test/setup.ts'],
           environment: 'node',
         },
       },

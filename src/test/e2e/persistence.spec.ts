@@ -1,39 +1,26 @@
 import { expect, test } from './fixtures';
-import {
-  clientCard,
-  createClient,
-  downloadConfiguration,
-  login,
-} from './helpers';
+import { currentGrant, generateGrant, goto, login, logout } from './helpers';
 
-test('restarting preserves credentials, client keys and disabled access', async ({
+test('a restart keeps the session and its live grant', async ({
   page,
   app,
 }) => {
   await login(page);
-  const card = await createClient(page, 'Persistent client');
-  const before = await downloadConfiguration(page, card);
-  const serverKey = await app.serverPublicKey();
-  const privateKey = before.contents.match(/^PrivateKey = (.+)$/m)?.[1];
-  expect(privateKey).toBeTruthy();
-  const publicKey = await app.publicKey(privateKey!);
-  await expect.poll(app.peers).toContain(publicKey);
-  await card.getByRole('switch', { name: 'Disable Client' }).click();
-  await expect.poll(app.peers).not.toContain(publicKey);
+  await generateGrant(page);
+  const grant = await currentGrant(page);
 
-  // Stop browser polling so restart errors cannot interfere with UI assertions.
+  // Stop polling while the interface is down so UI errors cannot race the test.
   await page.goto('about:blank');
   const restartedUrl = await app.restart();
-  await page.context().clearCookies();
-  await login(page, `${restartedUrl}/login`);
+  await goto(page, restartedUrl);
 
-  const restored = clientCard(page, 'Persistent client');
+  await expect(page.getByText('Signed in as', { exact: true })).toBeVisible();
   await expect(
-    restored.getByRole('switch', { name: 'Enable Client' })
-  ).not.toBeChecked();
-  expect(await downloadConfiguration(page, restored)).toEqual(before);
-  expect(await app.serverPublicKey()).toBe(serverKey);
-  expect(await app.peers()).not.toContain(publicKey);
-  await restored.getByRole('switch', { name: 'Enable Client' }).click();
-  await expect.poll(app.peers).toContain(publicKey);
+    page.getByRole('heading', { name: grant.name, exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Download .conf', exact: true })
+  ).toBeVisible();
+
+  await logout(page);
 });

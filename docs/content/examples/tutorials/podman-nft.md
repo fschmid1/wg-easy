@@ -81,9 +81,9 @@ sudo systemctl daemon-reload
 sudo systemctl start wg-easy
 ```
 
-## Edit Hooks
+## Set the Hooks
 
-In the Admin Panel of your WireGuard server, go to the `Hooks` tab and add the following hook:
+Set `WG_POST_UP` to the following hook. The matching `WG_POST_DOWN` deletes the table:
 
 1. PostUp
 
@@ -97,7 +97,15 @@ In the Admin Panel of your WireGuard server, go to the `Hooks` tab and add the f
     nft delete table inet wg_table_{{interface}}
     ```
 
-If you don't have iptables loaded on your server, you could see many errors in the logs or in the UI. You can ignore them.
+Add the hook to the container environment, for example in a compose file:
+
+```yaml
+environment:
+    - WG_POST_UP=nft add table inet wg_table_{{interface}}; ...
+    - WG_POST_DOWN=nft delete table inet wg_table_{{interface}}
+```
+
+If you don't have iptables loaded on your server, you could see many errors in the logs.
 
 ## Restart the Container
 

@@ -1,29 +1,18 @@
 import { defineEventHandler, type RequestEvent } from 'nuxt/server';
 
-import * as setup from '#server/features/setup';
 import { authorizeMetrics } from '#server/features/settings';
 import { getCurrentUser } from '#server/features/identity/session';
-import type { PublicUser } from '#shared/contracts/identity';
+import type { PortalUser } from '#shared/contracts/identity';
 
 /**
- * Authentication belongs here; feature functions enforce resource permissions.
+ * Authentication belongs here; feature functions enforce resource ownership.
  */
 export function defineAuthenticatedEventHandler<T>(
-  handler: (params: { event: RequestEvent; user: PublicUser }) => T
+  handler: (params: { event: RequestEvent; user: PortalUser }) => T
 ) {
   return defineEventHandler(async (event) => {
     const user = await getCurrentUser(event);
     return handler({ event, user });
-  });
-}
-
-export function defineSetupEventHandler<T>(
-  step: setup.SetupAction,
-  handler: (params: { event: RequestEvent }) => T
-) {
-  return defineEventHandler(async (event) => {
-    await setup.assertStep(step);
-    return handler({ event });
   });
 }
 

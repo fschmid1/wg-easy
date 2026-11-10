@@ -1,13 +1,18 @@
 import fs from 'node:fs/promises';
 
-import { isExpired } from './policies';
 import { generateServerConfig } from './configuration';
 
 import { getDatabase } from '#db';
 import type { DatabaseStore, Repositories } from '#db/store';
 import { wg } from '#server/utils/wgHelper';
 import { firewall } from '#server/utils/firewall';
-import { WG_ENV } from '#server/utils/config';
+import {
+  GRANT_ENV,
+  HOOKS_ENV,
+  SESSION_ENV,
+  VPN_ENV,
+  WG_ENV,
+} from '#server/utils/config';
 
 let pending: Promise<unknown> = Promise.resolve();
 type ApplyMode = 'sync' | 'start' | 'restart';
@@ -97,38 +102,179 @@ export function commit<T>(
   });
 }
 
+export function isGrantExpired(
+  grant: {
+    createdAt: string;
+    expiresAt: string | null;
+    revealedAt: string | null;
+    firstHandshakeAt: string | null;
+  },
+  now: number
+) {
+  const issued = Date.parse(grant.createdAt);
+  if (now >= issued + GRANT_ENV.CONNECT_DEADLINE && !grant.firstHandshakeAt) {
+    return true;
+  }
+  if (now >= issued + GRANT_ENV.DOWNLOAD_WINDOW && !grant.revealedAt) {
+    return true;
+  }
+  if (grant.expiresAt && now >= Date.parse(grant.expiresAt)) {
+    return true;
+  }
+  if (
+    GRANT_ENV.IDLE_TIMEOUT > 0 &&
+    grant.firstHandshakeAt &&
+    now - Date.parse(grant.firstHandshakeAt) >= GRANT_ENV.IDLE_TIMEOUT
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** A grant never outlives the web session that owns it. */
+async function hasLiveSession(
+  tx: Repositories,
+  sessionId: string | null,
+  now: number
+) {
+  if (!sessionId) {
+    return false;
+  }
+  const row = await tx.sessions.get(sessionId);
+  return Boolean(
+    row &&
+    !row.revokedAt &&
+    now < Date.parse(row.expiresAt) &&
+    now - Date.parse(row.lastSeenAt) <= SESSION_ENV.IDLE
+  );
+}
+
+/**
+ * Revokes timed-out grants and records the first observed handshake.
+ * Safe to run before the interface exists; handshake polling is best effort.
+ */
 export function maintain() {
   return enqueue(async () => {
     const database = getDatabase();
-    const changed = await database.transaction(async (tx) => {
-      const clients = await tx.clients.getAll();
-      const timestamp = Date.now();
-      const expired = clients.filter(
-        (client) => client.enabled && isExpired(client.expiresAt, timestamp)
-      );
-      if (expired.length) {
-        await tx.clients.setEnabled(
-          expired.map((client) => client.id),
-          false
-        );
-      }
-      for (const client of clients) {
-        if (
-          client.oneTimeLink &&
-          isExpired(client.oneTimeLink.expiresAt, timestamp)
-        ) {
-          await tx.oneTimeLinks.delete(client.id);
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const network = await database.interfaces.get();
+
+    const connected = new Set<string>();
+    try {
+      for (const peer of await wg.dump(network.name)) {
+        if (peer.latestHandshakeAt) {
+          connected.add(peer.publicKey);
         }
       }
-      return expired.length > 0;
+    } catch {
+      // The interface may be down; timers still apply.
+    }
+
+    const changed = await database.transaction(async (tx) => {
+      let removed = false;
+      for (const grant of await tx.clients.getAll()) {
+        if (!grant.firstHandshakeAt && connected.has(grant.publicKey)) {
+          await tx.clients.setFirstHandshake(grant.id, nowIso);
+          grant.firstHandshakeAt = nowIso;
+        }
+        if (
+          isGrantExpired(grant, now) ||
+          !(await hasLiveSession(tx, grant.sessionId, now))
+        ) {
+          await tx.clients.delete(grant.id);
+          removed = true;
+        }
+      }
+      for (const stuck of await tx.clients.getStuckReveals(now)) {
+        await tx.clients.burnPrivateKey(stuck.id);
+      }
+      await tx.sessions.deleteExpired(nowIso);
+      return removed;
     });
     if (changed || unapplied.has(database)) {
       await apply();
     }
   });
 }
+
 export function restart() {
   return enqueue(() => apply('restart'));
+}
+
+/** Runs before the interface is brought up. */
+export async function reconcile() {
+  const database = getDatabase();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const legacy = (await database.clients.getAll()).filter(
+    (client) => !client.sessionId
+  );
+  if (legacy.length > 0 && !WG_ENV.PORTAL_WIPE_LEGACY) {
+    throw new Error(
+      `Found ${legacy.length} long-lived client(s) from the previous install. This build is an OIDC access portal and cannot manage them. Start once with PORTAL_WIPE_LEGACY=1 to destroy them.`
+    );
+  }
+  await database.transaction(async (tx) => {
+    if (legacy.length > 0) {
+      await tx.clients.deleteMany(legacy.map((client) => client.id));
+      await tx.users.deleteNonOidc();
+    }
+    const network = await tx.interfaces.get();
+    if (
+      network.ipv4Cidr !== VPN_ENV.IPV4_CIDR ||
+      network.ipv6Cidr !== VPN_ENV.IPV6_CIDR
+    ) {
+      // Existing peer addresses belong to the old subnet; fail closed.
+      const stale = await tx.clients.getAll();
+      await tx.clients.deleteMany(stale.map((client) => client.id));
+    }
+    for (const grant of await tx.clients.getAll()) {
+      if (
+        isGrantExpired(grant, now) ||
+        !(await hasLiveSession(tx, grant.sessionId, now))
+      ) {
+        await tx.clients.delete(grant.id);
+      }
+    }
+    for (const stuck of await tx.clients.getStuckReveals(now)) {
+      await tx.clients.burnPrivateKey(stuck.id);
+    }
+    await tx.sessions.deleteExpired(nowIso);
+    // Environment is the source of truth for generated defaults.
+    await tx.interfaces.update({
+      port: VPN_ENV.PORT,
+      ipv4Cidr: VPN_ENV.IPV4_CIDR,
+      ipv6Cidr: VPN_ENV.IPV6_CIDR,
+    });
+    await tx.userConfigs.update({
+      host: VPN_ENV.HOST,
+      port: VPN_ENV.PORT,
+      defaultDns: VPN_ENV.DNS,
+      defaultAllowedIps: VPN_ENV.ALLOWED_IPS,
+      defaultMtu: VPN_ENV.MTU,
+      defaultPersistentKeepalive: VPN_ENV.KEEPALIVE,
+      defaultGeneratePreSharedKey: true,
+    });
+    // An empty update object makes Drizzle throw, so only write overrides.
+    if (
+      HOOKS_ENV.PRE_UP !== undefined ||
+      HOOKS_ENV.POST_UP !== undefined ||
+      HOOKS_ENV.PRE_DOWN !== undefined ||
+      HOOKS_ENV.POST_DOWN !== undefined
+    ) {
+      await tx.hooks.update({
+        ...(HOOKS_ENV.PRE_UP !== undefined && { preUp: HOOKS_ENV.PRE_UP }),
+        ...(HOOKS_ENV.POST_UP !== undefined && { postUp: HOOKS_ENV.POST_UP }),
+        ...(HOOKS_ENV.PRE_DOWN !== undefined && {
+          preDown: HOOKS_ENV.PRE_DOWN,
+        }),
+        ...(HOOKS_ENV.POST_DOWN !== undefined && {
+          postDown: HOOKS_ENV.POST_DOWN,
+        }),
+      });
+    }
+  });
 }
 
 export function start() {

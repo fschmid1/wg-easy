@@ -2,7 +2,6 @@ import { sql, relations } from 'drizzle-orm';
 import { int, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import { wgInterface } from '../interface/schema';
-import { oneTimeLink } from '../oneTimeLink/schema';
 import { user } from '../user/schema';
 
 /** null means use value from userConfig */
@@ -24,6 +23,8 @@ export const client = sqliteTable(
         onUpdate: 'cascade',
       }),
     name: text().notNull(),
+    /** Web session that owns this grant. */
+    sessionId: text('session_id'),
     ipv4Address: text('ipv4_address').notNull().unique(),
     ipv6Address: text('ipv6_address').notNull().unique(),
     preUp: text('pre_up').default('').notNull(),
@@ -64,6 +65,10 @@ export const client = sqliteTable(
     dns: text({ mode: 'json' }).$type<string[]>(),
     serverEndpoint: text('server_endpoint'),
     enabled: int({ mode: 'boolean' }).notNull(),
+    /** Set when the config was delivered; the private key is cleared at once. */
+    revealedAt: text('revealed_at'),
+    /** Set by the first observed WireGuard handshake. */
+    firstHandshakeAt: text('first_handshake_at'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),
@@ -81,10 +86,6 @@ export const client = sqliteTable(
 );
 
 export const clientsRelations = relations(client, ({ one }) => ({
-  oneTimeLink: one(oneTimeLink, {
-    fields: [client.id],
-    references: [oneTimeLink.id],
-  }),
   user: one(user, {
     fields: [client.userId],
     references: [user.id],

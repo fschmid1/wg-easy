@@ -1,27 +1,18 @@
-import type { H3Event } from 'h3';
+import type { PortalUser } from '#shared/contracts/identity';
 
 export const useAuthStore = defineStore('Auth', () => {
-  const userData = useState<SharedPublicUser | null>('user-data', () => null);
+  const userData = useState<PortalUser | null>('user-data', () => null);
 
-  async function getSession(event?: H3Event) {
+  async function getSession() {
     try {
-      if (event?.$fetch) {
-        return await event.$fetch('/api/session', {
-          method: 'get',
-        });
-      }
-
-      return await $fetch('/api/session', {
-        method: 'get',
-      });
+      return await $fetch<PortalUser>('/api/session');
     } catch {
       return null;
     }
   }
 
   async function update() {
-    const data = await getSession();
-    userData.value = data;
+    userData.value = await getSession();
   }
 
   return { userData, update, getSession };

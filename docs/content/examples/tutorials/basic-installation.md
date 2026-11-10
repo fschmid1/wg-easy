@@ -29,7 +29,21 @@ Follow the Docs here: <https://docs.docker.com/engine/install/> and install Dock
     sudo curl -o /etc/docker/containers/wg-easy/docker-compose.yml https://raw.githubusercontent.com/wg-easy/wg-easy/master/docker-compose.yml
     ```
 
-3. Start `wg-easy`
+3. Create `/etc/docker/containers/wg-easy/.env` with the required OIDC settings:
+
+    ```dotenv
+    OAUTH_OIDC_SERVER=https://idp.example.com
+    OAUTH_OIDC_CLIENT_ID=wg-easy
+    OAUTH_OIDC_CLIENT_SECRET=...
+    OIDC_ALLOWED_GROUPS=vpn-users
+    VPN_HOST=vpn.example.com
+    ```
+
+    Register `https://your-portal.example.com/api/auth/callback` at the provider. See
+    [OIDC Authentication](../../advanced/config/external-authentication.md) for every
+    option.
+
+4. Start `wg-easy`
 
     ```shell
      cd /etc/docker/containers/wg-easy
