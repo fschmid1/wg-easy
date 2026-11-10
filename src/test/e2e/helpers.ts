@@ -16,8 +16,9 @@ export async function reload(page: Page) {
 }
 
 export async function login(page: Page, url = '/') {
+  // Opening an unauthenticated portal redirects to the identity provider and
+  // back; no click is required.
   await goto(page, url);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('Signed in as', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'No active access', exact: true })
@@ -26,7 +27,6 @@ export async function login(page: Page, url = '/') {
 
 export async function loginDenied(page: Page) {
   await goto(page, '/');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
     page.getByText(/not allowed to request VPN access/)
   ).toBeVisible();

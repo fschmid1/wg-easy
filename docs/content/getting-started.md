@@ -113,11 +113,11 @@ trusted. Keep `INSECURE=false` for HTTPS deployments so the session cookie is ma
 
 ## First login
 
-Open the portal, sign in with the identity provider, and press **Generate config**.
-Download the `.conf` file or show the QR code immediately: the configuration is
-delivered **once**. Import it into a WireGuard client and connect within the connect
-deadline (10 minutes by default). The grant expires after 8 hours, or immediately when
-you log out.
+Open the portal. It sends you straight to your identity provider, then back to the
+portal once you are signed in. Press **Generate config** and download the `.conf` file
+or show the QR code immediately: the configuration is delivered **once**. Import it
+into a WireGuard client and connect within the connect deadline (10 minutes by
+default). The grant expires after 8 hours, or immediately when you log out.
 
 After the configuration has been delivered, the private key is erased and cannot be
 shown again. Use **Generate config** to replace it; issuance is rate-limited.

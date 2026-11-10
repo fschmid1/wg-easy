@@ -72,6 +72,12 @@ linked to the `sub`. There is no admin UI and no way to edit users from the port
 
 ## Sessions
 
+Opening the portal without a portal session redirects straight to the identity
+provider, so the identity provider's own SSO session decides whether a login form is
+shown. Two states stay on the portal instead: a rejected login (group or email check)
+and the page shown directly after logout. In both cases the portal offers a **Sign in**
+button.
+
 The cookie stores a random token; the database stores only its SHA-256 hash. Cookies are
 `HttpOnly`, `SameSite=Lax`, and `Secure` unless `INSECURE=true`. The absolute lifetime
 is 8 hours and the rolling idle timeout is 30 minutes by default. A session ends its

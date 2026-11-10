@@ -1,13 +1,17 @@
 import { expect, test } from './fixtures';
-import { goto, login, loginDenied, reload } from './helpers';
+import { login, loginDenied, reload } from './helpers';
 
-test('an OIDC login creates a portal session that logout ends', async ({
+test('an unauthenticated visit redirects to OIDC and logout ends the session', async ({
   page,
 }) => {
-  await goto(page, '/');
   expect((await page.request.get('/api/grants')).status()).toBe(401);
 
+  const authorize = page.waitForRequest((request) =>
+    request.url().includes('/authorize')
+  );
   await login(page);
+  expect((await authorize).url()).toContain('response_type=code');
+
   await reload(page);
   await expect(page.getByText('Signed in as', { exact: true })).toBeVisible();
   expect((await page.request.get('/api/grants')).status()).toBe(200);

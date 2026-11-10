@@ -1,7 +1,10 @@
 {
-  "name": "WireGuard",
+  "name": "WireGuard Access",
+  "short_name": "WireGuard",
+  "description": "Short-lived WireGuard configurations for your session.",
   "display": "standalone",
-  "background_color": "#fff",
+  "background_color": "#f2f3f2",
+  "theme_color": "#f2f3f2",
   "icons": [
     {
       "src": "/favicon.png",

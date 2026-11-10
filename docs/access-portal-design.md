@@ -24,6 +24,10 @@ password authentication, and no long-lived peers.
 
 ## Authentication
 
+An unauthenticated visit to the portal redirects to `/api/auth/login`, so a user never
+has to click through an interstitial. Two states stay on the portal instead: a rejected
+login and the page shown right after logout.
+
 1. `GET /api/auth/login` starts OIDC discovery + PKCE (state and nonce in the sealed
    pre-session cookie).
 2. The callback fetches userinfo, requires a verified email, and checks the group claim

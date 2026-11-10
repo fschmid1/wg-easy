@@ -88,9 +88,9 @@ provider, so no external IdP is needed:
 pnpm dev
 ```
 
-Open <http://localhost:51821> and sign in. The mock provider always approves the
-configured user (`Dev User`, groups: `vpn-users`) and is reachable from your
-browser as <http://mock-idp.localhost:9000>. Both the portal container and the
+Open <http://localhost:51821>; it redirects to the mock provider, which always
+approves the configured user (`Dev User`, groups: `vpn-users`) and is reachable
+from your browser as <http://mock-idp.localhost:9000>. Both the portal container and the
 browser use that same issuer URL; Docker resolves it to the mock service and
 browsers resolve `*.localhost` to loopback. If your browser does not, add
 `127.0.0.1 mock-idp.localhost` to your hosts file.
