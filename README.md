@@ -81,6 +81,25 @@ The documentation site has the full configuration reference:
 
 ### Dev server
 
+`pnpm dev` starts the portal together with a disposable mock OpenID Connect
+provider, so no external IdP is needed:
+
+```shell
+pnpm dev
+```
+
+Open <http://localhost:51821> and sign in. The mock provider always approves the
+configured user (`Dev User`, groups: `vpn-users`) and is reachable from your
+browser as <http://mock-idp.localhost:9000>. Both the portal container and the
+browser use that same issuer URL; Docker resolves it to the mock service and
+browsers resolve `*.localhost` to loopback. If your browser does not, add
+`127.0.0.1 mock-idp.localhost` to your hosts file.
+
+The mock user and group are configurable through `MOCK_OIDC_NAME`,
+`MOCK_OIDC_EMAIL`, `MOCK_OIDC_USERNAME`, and `MOCK_OIDC_GROUPS`. To develop
+against a real identity provider instead, override `OAUTH_OIDC_SERVER`,
+`OAUTH_OIDC_CLIENT_ID`, `OAUTH_OIDC_CLIENT_SECRET`, and `OIDC_ALLOWED_GROUPS`:
+
 ```shell
 export OAUTH_OIDC_SERVER=https://idp.example.com
 export OAUTH_OIDC_CLIENT_ID=wg-easy
